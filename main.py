@@ -10,9 +10,10 @@ from sqlalchemy.orm import sessionmaker, Session, declarative_base
 import pandas as pd
 import pytz
 from pathlib import Path
+import gradio as gr
 
 # Initialize FastAPI app
-app = FastAPI()
+app = FastAPI(title="Loop XYZ - Store Monitoring API")
 
 # Database setup (PostgreSQL)
 DATABASE_URL = "postgresql://postgres:password@localhost:5432/loopxyz"
@@ -318,3 +319,66 @@ async def get_report(report_id: str):
             raise HTTPException(status_code=500, detail="Report generation failed")
     finally:
         db.close()
+
+# Gradio Interface
+def trigger_report_ui():
+    """Trigger a new report generation"""
+    db: Session = SessionLocal()
+    try:
+        report_id = str(uuid.uuid4())
+        report = Report(report_id=report_id, status="Running")
+        db.add(report)
+        db.commit()
+        
+        # Start report generation (non-background for demo)
+        try:
+            generate_report(report_id)
+            return f"Report triggered successfully! Your report ID is: {report_id}"
+        except Exception as e:
+            return f"Error generating report: {str(e)}"
+    finally:
+        db.close()
+
+def check_report_status_ui(report_id: str):
+    """Check status of a report by ID"""
+    if not report_id:
+        return "Please enter a report ID"
+        
+    db: Session = SessionLocal()
+    try:
+        report = db.query(Report).filter(Report.report_id == report_id).first()
+        if not report:
+            return "Report not found"
+            
+        if report.status == "Running":
+            return "Report is still being generated. Please check back later."
+        elif report.status == "Complete" and report.file_path:
+            # Return download link
+            file_path = Path(report.file_path)
+            if file_path.exists():
+                return f"Report is complete. Download link: {file_path}"
+            else:
+                return "Report file not found."
+        else:
+            return "Report generation failed"
+    finally:
+        db.close()
+
+# Create Gradio interface
+with gr.Blocks(title="Loop XYZ Store Monitoring API") as demo:
+    gr.Markdown("# Loop XYZ Store Monitoring")
+    
+    with gr.Tab("Trigger Report"):
+        trigger_button = gr.Button("Generate New Report")
+        trigger_output = gr.Textbox(label="Result")
+        trigger_button.click(fn=trigger_report_ui, outputs=trigger_output)
+    
+    with gr.Tab("Check Report Status"):
+        report_id_input = gr.Textbox(label="Report ID")
+        check_button = gr.Button("Check Status")
+        status_output = gr.Textbox(label="Status")
+        check_button.click(fn=check_report_status_ui, inputs=report_id_input, outputs=status_output)
+
+# Create Gradio public link
+if __name__ == "__main__":
+    demo.launch(share=True)  # share=True creates a public link
