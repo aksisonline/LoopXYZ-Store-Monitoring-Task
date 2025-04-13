@@ -11,12 +11,21 @@ import pandas as pd
 import pytz
 from pathlib import Path
 import gradio as gr
+from contextlib import asynccontextmanager
 
-# Initialize FastAPI app
-app = FastAPI(title="Loop XYZ - Store Monitoring API")
+# Lifespan context manager for startup/shutdown events
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: run data ingestion
+    ingest_data()
+    yield
+    # Shutdown: cleanup code can go here if needed
+
+# Initialize FastAPI app with lifespan
+app = FastAPI(title="Loop XYZ - Store Monitoring API", lifespan=lifespan)
 
 # Database setup (PostgreSQL)
-DATABASE_URL = "postgresql://postgres:password@localhost:5432/loopxyz"
+DATABASE_URL = "postgresql://loopxyz_owner:npg_1E4lLCbiShYm@ep-young-bonus-a1cepd1n-pooler.ap-southeast-1.aws.neon.tech/loopxyz?sslmode=require"
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -57,7 +66,7 @@ Base.metadata.create_all(bind=engine)
 def ingest_data():
     db: Session = SessionLocal()
     try:
-        status_df = pd.read_csv("data/store_status.csv")
+        status_df = pd.read_csv("/kaggle/input/loopxyz/store_status.csv")
         for _, row in status_df.iterrows():
             status = StoreStatus(
                 store_id=str(row["store_id"]),
@@ -66,8 +75,8 @@ def ingest_data():
             )
             db.merge(status)
 
-        if os.path.exists("data/menu_hours.csv"):
-            hours_df = pd.read_csv("data/menu_hours.csv")
+        if os.path.exists("kaggle/input/loopxyz/menu_hours.csv"):
+            hours_df = pd.read_csv("/kaggle/input/loopxyz/menu_hours.csv")
             for _, row in hours_df.iterrows():
                 hours = MenuHours(
                     store_id=str(row["store_id"]),
@@ -77,8 +86,8 @@ def ingest_data():
                 )
                 db.merge(hours)
 
-        if os.path.exists("data/timezones.csv"):
-            tz_df = pd.read_csv("data/timezones.csv")
+        if os.path.exists("/kaggle/input/loopxyz/timezones.csv"):
+            tz_df = pd.read_csv("/kaggle/input/loopxyz/timezones.csv")
             for _, row in tz_df.iterrows():
                 tz = Timezone(
                     store_id=str(row["store_id"]),
@@ -89,11 +98,6 @@ def ingest_data():
         db.commit()
     finally:
         db.close()
-
-# Run ingestion on startup
-@app.on_event("startup")
-def startup_event():
-    ingest_data()
 
 # Helper functions (unchanged)
 def get_timezone(db: Session, store_id: str) -> str:
