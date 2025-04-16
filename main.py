@@ -58,8 +58,8 @@ def generate_report(report_id: str):
     with engine.connect() as conn:
         # Load all required tables
         store_status = pd.read_sql("SELECT * FROM store_status", conn)
-        business_hours = pd.read_sql("SELECT * FROM business_hours", conn)
-        timezones = pd.read_sql("SELECT * FROM timezone", conn)
+        menu_hours = pd.read_sql("SELECT * FROM menu_hours", conn)
+        timezones = pd.read_sql("SELECT * FROM timezones", conn)
 
     # Parse timestamp
     store_status['timestamp_utc'] = pd.to_datetime(store_status['timestamp_utc'])
@@ -71,7 +71,7 @@ def generate_report(report_id: str):
 
     for store_id in store_status['store_id'].unique():
         store_data = store_status[store_status['store_id'] == store_id].sort_values("timestamp_utc")
-        biz_hours = business_hours[business_hours['store_id'] == store_id]
+        biz_hours = menu_hours[menu_hours['store_id'] == store_id]
         
         # Check if timezone data exists for this store
         timezone_data = timezones[timezones['store_id'] == store_id]
@@ -82,7 +82,11 @@ def generate_report(report_id: str):
             tz_str = 'America/Chicago'
             print(f"No timezone found for store {store_id}, using America/Chicago as default.")
 
-        store_data['timestamp_local'] = store_data['timestamp_utc'].dt.tz_localize('UTC').dt.tz_convert(tz_str)
+        # Fix: Only localize if naive, otherwise just convert
+        if store_data['timestamp_utc'].dt.tz is None:
+            store_data['timestamp_local'] = store_data['timestamp_utc'].dt.tz_localize('UTC').dt.tz_convert(tz_str)
+        else:
+            store_data['timestamp_local'] = store_data['timestamp_utc'].dt.tz_convert(tz_str)
         store_data['status'] = store_data['status'].str.lower()
 
         # Interpolate logic should go here — simplified version:
