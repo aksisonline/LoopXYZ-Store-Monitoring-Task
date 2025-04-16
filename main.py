@@ -11,7 +11,16 @@ app = FastAPI()
 
 # Database connection
 load_dotenv()
-DB_URL = os.getenv("DB_URL")
+
+USER = os.getenv("user")
+PASSWORD = os.getenv("password")
+HOST = os.getenv("host")
+PORT = os.getenv("port")
+DBNAME = os.getenv("dbname")
+
+# Construct the SQLAlchemy connection string
+DB_URL = f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/{DBNAME}?sslmode=require"
+
 if not DB_URL:
     raise ValueError("DB_URL environment variable is not set in .env file")
 engine = create_engine(DB_URL)
