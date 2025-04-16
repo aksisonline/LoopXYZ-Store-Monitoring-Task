@@ -56,49 +56,50 @@ def get_report(report_id: str):
 
 def generate_report(report_id: str):
     with engine.connect() as conn:
-        # Load all required tables
-        store_status = pd.read_sql("SELECT * FROM store_status", conn)
+        # Only fetch last 7 days of store_status, and only relevant columns
+        max_time = pd.read_sql("SELECT MAX(timestamp_utc) as max_time FROM store_status", conn)['max_time'][0]
+        min_time = max_time - pd.Timedelta(days=7)
+        store_status = pd.read_sql(
+            f"SELECT store_id, status, timestamp_utc FROM store_status WHERE timestamp_utc >= '{min_time}'", conn
+        )
         menu_hours = pd.read_sql("SELECT * FROM menu_hours", conn)
         timezones = pd.read_sql("SELECT * FROM timezones", conn)
 
     # Parse timestamp
     store_status['timestamp_utc'] = pd.to_datetime(store_status['timestamp_utc'])
 
+    # Merge timezone info in advance for vectorized conversion
+    store_status = store_status.merge(timezones, on='store_id', how='left')
+    store_status['timezone_str'] = store_status['timezone_str'].fillna('America/Chicago')
+
     # Hardcoded "current time" as max timestamp
     current_time = store_status['timestamp_utc'].max()
 
+    # Vectorized timezone conversion
+    def convert_to_local(row):
+        ts = row['timestamp_utc']
+        tz = row['timezone_str']
+        if ts.tzinfo is None:
+            return ts.tz_localize('UTC').tz_convert(tz)
+        else:
+            return ts.tz_convert(tz)
+    store_status['timestamp_local'] = store_status.apply(convert_to_local, axis=1)
+    store_status['status'] = store_status['status'].str.lower()
+
+    # Precompute time windows
+    last_hour = current_time - timedelta(hours=1)
+    last_day = current_time - timedelta(days=1)
+    last_week = current_time - timedelta(days=7)
+
     report_rows = []
 
-    for store_id in store_status['store_id'].unique():
-        store_data = store_status[store_status['store_id'] == store_id].sort_values("timestamp_utc")
-        biz_hours = menu_hours[menu_hours['store_id'] == store_id]
-        
-        # Check if timezone data exists for this store
-        timezone_data = timezones[timezones['store_id'] == store_id]
-        if len(timezone_data) > 0:
-            tz_str = timezone_data['timezone_str'].iloc[0]
-        else:
-            # Use America/Chicago as default timezone when missing
-            tz_str = 'America/Chicago'
-            print(f"No timezone found for store {store_id}, using America/Chicago as default.")
-
-        # Fix: Only localize if naive, otherwise just convert
-        if store_data['timestamp_utc'].dt.tz is None:
-            store_data['timestamp_local'] = store_data['timestamp_utc'].dt.tz_localize('UTC').dt.tz_convert(tz_str)
-        else:
-            store_data['timestamp_local'] = store_data['timestamp_utc'].dt.tz_convert(tz_str)
-        store_data['status'] = store_data['status'].str.lower()
-
-        # Interpolate logic should go here — simplified version:
-        # Assume observations are 5-minute polls. You can interpolate gaps later.
-        last_hour = current_time - timedelta(hours=1)
-        last_day = current_time - timedelta(days=1)
-        last_week = current_time - timedelta(days=7)
-
+    # Group by store_id for vectorized calculation
+    for store_id, group in store_status.groupby('store_id'):
+        # No need to sort, as filtering is vectorized
         def compute_metrics(start_time):
-            df = store_data[(store_data['timestamp_utc'] >= start_time) & (store_data['timestamp_utc'] <= current_time)]
-            uptime = df[df['status'] == 'active'].shape[0] * 5
-            downtime = df[df['status'] == 'inactive'].shape[0] * 5
+            df = group[(group['timestamp_utc'] >= start_time) & (group['timestamp_utc'] <= current_time)]
+            uptime = (df['status'] == 'active').sum() * 5
+            downtime = (df['status'] == 'inactive').sum() * 5
             return uptime, downtime
 
         u1, d1 = compute_metrics(last_hour)
