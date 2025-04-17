@@ -115,7 +115,7 @@ def generate_report(report_id: str):
             "store_id": store_id,
             "uptime_last_hour": u1,
             "uptime_last_day": round(u24 / 60, 2),
-            "update_last_week": round(u168 / 60, 2),
+            "uptime_last_week": round(u168 / 60, 2),
             "downtime_last_hour": d1,
             "downtime_last_day": round(d24 / 60, 2),
             "downtime_last_week": round(d168 / 60, 2)
