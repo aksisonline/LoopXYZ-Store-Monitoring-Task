@@ -111,9 +111,9 @@ def generate_report(report_id: str):
                     status = prev.iloc[-1]['status']
                     duration = (current_time - start_time).total_seconds() / 60
                     if status == 'active':
-                        return round(duration), 0
+                        return duration, 0
                     else:
-                        return 0, round(duration)
+                        return 0, duration
                 return 0, 0
 
             # Pad at start
@@ -142,7 +142,7 @@ def generate_report(report_id: str):
 
             uptime = df[df['status'] == 'active']['duration'].sum()
             downtime = df[df['status'] == 'inactive']['duration'].sum()
-            return round(uptime), round(downtime)
+            return uptime, downtime
 
         u1, d1 = compute_metrics(last_hour)
         u24, d24 = compute_metrics(last_day)
