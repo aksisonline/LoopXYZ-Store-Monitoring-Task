@@ -6,6 +6,7 @@ from sqlalchemy import create_engine, text
 from datetime import timedelta
 import os
 from dotenv import load_dotenv
+import time
 
 app = FastAPI()
 
@@ -55,6 +56,9 @@ def get_report(report_id: str):
 
 
 def generate_report(report_id: str):
+    import datetime
+    start_time = time.time()
+    print(f"[{datetime.datetime.now()}] Report generation started for report_id={report_id}")
     with engine.connect() as conn:
         # Only fetch last 7 days of store_status, and only relevant columns
         max_time = pd.read_sql("SELECT MAX(timestamp_utc) as max_time FROM store_status", conn)['max_time'][0]
@@ -120,3 +124,6 @@ def generate_report(report_id: str):
     file_path = f"report_{report_id}.csv"
     df_out.to_csv(file_path, index=False)
     reports[report_id] = file_path
+    end_time = time.time()
+    print(f"[{datetime.datetime.now()}] Report generation finished for report_id={report_id}")
+    print(f"Time taken for report_id={report_id}: {end_time - start_time:.2f} seconds")
