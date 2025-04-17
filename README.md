@@ -25,78 +25,100 @@ To provide asynchronous report generation and retrieval via a REST API.
 
 ---
 
-## 3. **Data Fetching in `generate_report`**
+## 3. **Data Processing in `generate_report`**
 
-- Fetches the last 7 days of `store_status` data (store_id, status, timestamp_utc).
-- Fetches all `menu_hours` (store open/close times).
-- Fetches all `timezones` (store_id, timezone_str).
+- Uses batch processing to manage memory usage (configurable batch size).
+- Gets the max timestamp to define the current time.
+- Defines time windows for analysis (last hour, day, and week).
+- Fetches unique store IDs and processes them in batches.
+- Fetches timezone data for all stores once (small table).
+- Processes each batch of stores efficiently.
 
 **Purpose:**
-To minimize memory usage and only process relevant data for the report.
+To optimize memory usage and processing time for large datasets.
 
 ---
 
-## 4. **Timezone Handling**
+## 4. **Batch Processing**
+
+- Processes stores in configurable batches (default 50,000).
+- For each batch:
+  - Fetches only the relevant store status data.
+  - Only retrieves data from the last week.
+  - Processes each store in the batch individually.
+
+**Purpose:**
+To handle large datasets efficiently by limiting memory usage and enabling parallel processing.
+
+---
+
+## 5. **Timezone Handling**
 
 - Merges `store_status` with `timezones` on `store_id`.
 - Fills missing timezones with a default (`America/Chicago`).
-- All timestamps are kept in UTC for calculations.
-- When determining open/close intervals, local times from `menu_hours` are converted to UTC using the store's timezone.
+- Keeps timestamps in UTC for consistent calculations.
 
 **Purpose:**
 To ensure all time calculations are accurate and comparable, regardless of the store's local timezone.
 
 ---
 
-## 5. **Padding Logic**
+## 6. **Performance Optimization**
+
+- Converts timestamps to datetime once, reducing redundant operations.
+- Normalizes status strings to lowercase for consistent comparison.
+- Sorts status records once for all time windows.
+- Computes metrics for all time windows in a single pass.
+- Uses vectorized operations for calculations when possible.
+
+**Purpose:**
+To maximize processing efficiency and minimize execution time.
+
+---
+
+## 7. **Padding Logic**
 
 The padding logic ensures that the store's status is defined for the entire reporting window, even if there are no status records exactly at the start or end of the window.
 
-**Example:**
+**Implementation:**
 
-Suppose you want to calculate uptime for a store between 10:00 and 12:00, but the status records are:
+- For each time window, checks if data exists at start and end points.
+- Adds padding at start using previous status (if available) or first available status.
+- Adds padding at end using the last known status.
+- Creates a new dataframe with padded values for vectorized operations.
 
-- 10:15: "active"
-- 11:30: "inactive"
-
-There is no record at 10:00 or 12:00.
-
-**Padding at Start:**
-Since the first record is at 10:15 (after 10:00), the code checks for the last known status before 10:00. If there is one, it uses that; if not, it uses the first available status (here, "active"). It inserts a row at 10:00 with this status.
-
-**Padding at End:**
-The last record is at 11:30 (before 12:00), so the code inserts a row at 12:00 with the last known status ("inactive").
-
-**Resulting intervals:**
-
-- 10:00–10:15: "active" (from padding)
-- 10:15–11:30: "active"
-- 11:30–12:00: "inactive" (from padding)
-
-This way, the entire window (10:00–12:00) is covered, and uptime/downtime can be calculated accurately.
+**Purpose:**
+To ensure accurate calculation of uptime/downtime across the entire time window.
 
 ---
 
-## 6. **Open Hours Calculation**
+## 8. **Uptime/Downtime Calculation**
 
-- For each store and each day, retrieves open intervals from `menu_hours`.
-- Converts these intervals from local time to UTC using the store's timezone.
-- Only considers uptime/downtime during these open intervals.
+The `compute_metrics_optimized` function calculates uptime and downtime for multiple time windows in a single pass:
+
+- For each time window (last hour, day, week):
+  - Filters data to the current window.
+  - If no data is available, extrapolates from the last known status.
+  - Adds padding at start/end if needed.
+  - Uses vectorized operations to calculate durations between status changes.
+  - Sums all durations where status is 'active' (uptime) or 'inactive' (downtime).
 
 **Purpose:**
-To ensure that only the time when the store is scheduled to be open is counted towards uptime/downtime.
+To efficiently and accurately compute the total minutes/hours a store was up or down during each reporting period.
 
 ---
 
-## 7. **Uptime/Downtime Calculation**
+## 9. **Output Format**
 
-- For each store, for each reporting window (last hour, day, week):
-  - Filters status records to the window.
-  - Pads at start/end if needed.
-  - For each interval between status records:
-    - For each day in the interval, finds open intervals.
-    - Calculates the overlap (in minutes) between the status interval and each open interval.
-    - Sums up uptime (if status is 'active') and downtime (if 'inactive').
+The generated report includes:
+
+- Store ID
+- Uptime in the last hour (minutes)
+- Uptime in the last day (hours, rounded to 2 decimal places)
+- Uptime in the last week (hours, rounded to 2 decimal places)
+- Downtime in the last hour (minutes)
+- Downtime in the last day (hours, rounded to 2 decimal places)
+- Downtime in the last week (hours, rounded to 2 decimal places)
 
 **Purpose:**
-To accurately compute the total minutes/hours the store was up or down, but only during scheduled open hours.
+To provide a comprehensive overview of store operational status across different time periods.
