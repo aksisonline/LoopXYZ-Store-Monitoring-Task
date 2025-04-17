@@ -3,7 +3,8 @@ import pandas as pd
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy import create_engine, text
-from datetime import timedelta
+from datetime import timedelta, datetime
+import time
 import os
 from dotenv import load_dotenv
 
@@ -55,6 +56,9 @@ def get_report(report_id: str):
 
 
 def generate_report(report_id: str):
+    start_time = time.time()
+    print(f"Report generation started at: {datetime.now().isoformat()}")
+    
     with engine.connect() as conn:
         # Load all required tables
         store_status = pd.read_sql("SELECT * FROM store_status", conn)
@@ -119,3 +123,7 @@ def generate_report(report_id: str):
     file_path = f"report_{report_id}.csv"
     df_out.to_csv(file_path, index=False)
     reports[report_id] = file_path
+    
+    end_time = time.time()
+    print(f"Report generation ended at: {datetime.now().isoformat()}")
+    print(f"Report generation took {end_time - start_time:.2f} seconds")
