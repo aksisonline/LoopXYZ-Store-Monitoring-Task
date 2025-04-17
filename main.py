@@ -102,10 +102,47 @@ def generate_report(report_id: str):
     for store_id, group in store_status.groupby('store_id'):
         # No need to sort, as filtering is vectorized
         def compute_metrics(start_time):
-            df = group[(group['timestamp_utc'] >= start_time) & (group['timestamp_utc'] <= current_time)]
-            uptime = (df['status'] == 'active').sum() * 5
-            downtime = (df['status'] == 'inactive').sum() * 5
-            return uptime, downtime
+            df = group[(group['timestamp_utc'] >= start_time) & (group['timestamp_utc'] <= current_time)].sort_values('timestamp_utc').copy()
+            # If no polls in interval, extrapolate from closest poll before start_time (if any)
+            if df.empty:
+                # Try to find the last known status before start_time
+                prev = group[group['timestamp_utc'] < start_time].sort_values('timestamp_utc')
+                if not prev.empty:
+                    status = prev.iloc[-1]['status']
+                    duration = (current_time - start_time).total_seconds() / 60
+                    if status == 'active':
+                        return round(duration), 0
+                    else:
+                        return 0, round(duration)
+                return 0, 0
+
+            # Pad at start
+            if df.iloc[0]['timestamp_utc'] > start_time:
+                # Find last known status before start_time, else use first status in df
+                prev = group[group['timestamp_utc'] < start_time].sort_values('timestamp_utc')
+                status = prev.iloc[-1]['status'] if not prev.empty else df.iloc[0]['status']
+                pad_row = pd.DataFrame([{
+                    'timestamp_utc': start_time,
+                    'status': status
+                }])
+                df = pd.concat([pad_row, df], ignore_index=True)
+
+            # Pad at end
+            if df.iloc[-1]['timestamp_utc'] < current_time:
+                status = df.iloc[-1]['status']
+                pad_row = pd.DataFrame([{
+                    'timestamp_utc': current_time,
+                    'status': status
+                }])
+                df = pd.concat([df, pad_row], ignore_index=True)
+
+            df = df.sort_values('timestamp_utc').reset_index(drop=True)
+            df['next_timestamp'] = df['timestamp_utc'].shift(-1)
+            df['duration'] = (df['next_timestamp'] - df['timestamp_utc']).dt.total_seconds() / 60  # minutes
+
+            uptime = df[df['status'] == 'active']['duration'].sum()
+            downtime = df[df['status'] == 'inactive']['duration'].sum()
+            return round(uptime), round(downtime)
 
         u1, d1 = compute_metrics(last_hour)
         u24, d24 = compute_metrics(last_day)
