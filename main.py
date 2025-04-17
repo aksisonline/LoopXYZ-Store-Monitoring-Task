@@ -62,6 +62,7 @@ def generate_report(report_id: str):
     with engine.connect() as conn:
         # Only fetch last 7 days of store_status, and only relevant columns
         max_time = pd.read_sql("SELECT MAX(timestamp_utc) as max_time FROM store_status", conn)['max_time'][0]
+        max_time = pd.to_datetime(max_time)
         min_time = max_time - pd.Timedelta(days=7)
         store_status = pd.read_sql(
             f"SELECT store_id, status, timestamp_utc FROM store_status WHERE timestamp_utc >= '{min_time}'", conn
